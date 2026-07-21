@@ -24,6 +24,9 @@
 #include <wolfclu/clu_error_codes.h>
 #include <wolfclu/x509/clu_parse.h>
 #include <wolfclu/x509/clu_x509_sign.h>
+#ifdef WOLFSSL_HAVE_MLDSA
+#include <wolfssl/wolfcrypt/dilithium.h>
+#endif
 
 #ifndef WOLFCLU_NO_FILESYSTEM
 
@@ -165,6 +168,9 @@ static WOLFSSL_X509_EXTENSION* wolfCLU_parseSubjectKeyID(char* str, int crit,
             WOLFSSL_ASN1_STRING *data;
             int  keyType;
             void *key = NULL;
+#if defined(WOLFSSL_HAVE_MLDSA)
+            MlDsaKey* mldsa = NULL;
+#endif
 
             XMEMSET(&cert, 0, sizeof(Cert));
             keyType = wolfSSL_X509_get_pubkey_type(x509);
@@ -185,6 +191,57 @@ static WOLFSSL_X509_EXTENSION* wolfCLU_parseSubjectKeyID(char* str, int crit,
                     key = pkey->ecc->internal;
                     keyType = ECC_TYPE;
                     break;
+
+#if defined(WOLFSSL_HAVE_MLDSA)
+                case ML_DSA_44k:
+                case ML_DSA_65k:
+                case ML_DSA_87k:
+                {
+                    /* decode public key held in the pkey, it can be either
+                     * SubjectPublicKeyInfo DER or the raw public key */
+                    word32 idx = 0;
+                    byte level;
+                    int decodeOk = 0;
+
+                    if (keyType == ML_DSA_44k)
+                        level = WC_ML_DSA_44;
+                    else if (keyType == ML_DSA_65k)
+                        level = WC_ML_DSA_65;
+                    else
+                        level = WC_ML_DSA_87;
+
+                    mldsa = (MlDsaKey*)XMALLOC(sizeof(MlDsaKey), HEAP_HINT,
+                            DYNAMIC_TYPE_DILITHIUM);
+                    if (mldsa != NULL &&
+                            wc_MlDsaKey_Init(mldsa, NULL, INVALID_DEVID) == 0) {
+                        if (wc_MlDsaKey_PublicKeyDecode(mldsa,
+                                (const byte*)pkey->pkey.ptr,
+                                (word32)pkey->pkey_sz, &idx) == 0) {
+                            decodeOk = 1;
+                        }
+                        else if (wc_MlDsaKey_SetParams(mldsa, level) == 0 &&
+                                wc_MlDsaKey_ImportPubRaw(mldsa,
+                                    (const byte*)pkey->pkey.ptr,
+                                    (word32)pkey->pkey_sz) == 0) {
+                            decodeOk = 1;
+                        }
+                    }
+                    if (!decodeOk) {
+                        wolfCLU_LogError("error decoding ML-DSA public key");
+                        XFREE(mldsa, HEAP_HINT, DYNAMIC_TYPE_DILITHIUM);
+                        mldsa = NULL;
+                        break;
+                    }
+                    key = mldsa;
+                    if (keyType == ML_DSA_44k)
+                        keyType = ML_DSA_LEVEL2_TYPE;
+                    else if (keyType == ML_DSA_65k)
+                        keyType = ML_DSA_LEVEL3_TYPE;
+                    else
+                        keyType = ML_DSA_LEVEL5_TYPE;
+                    break;
+                }
+#endif
 
                 default:
                     wolfCLU_LogError("key type not yet supported");
@@ -207,6 +264,12 @@ static WOLFSSL_X509_EXTENSION* wolfCLU_parseSubjectKeyID(char* str, int crit,
                     wolfSSL_ASN1_STRING_free(data);
                 }
             }
+#if defined(WOLFSSL_HAVE_MLDSA)
+            if (mldsa != NULL) {
+                wc_MlDsaKey_Free(mldsa);
+                XFREE(mldsa, HEAP_HINT, DYNAMIC_TYPE_DILITHIUM);
+            }
+#endif
 	    wolfSSL_EVP_PKEY_free(pkey);
         }
     }
@@ -1061,6 +1124,14 @@ int wolfCLU_GetTypeFromPKEY(WOLFSSL_EVP_PKEY* key)
         case EVP_PKEY_DH:
             keyType = DHk;
             break;
+
+#if defined(WOLFSSL_HAVE_MLDSA) && defined(EVP_PKEY_DILITHIUM)
+        case EVP_PKEY_DILITHIUM:
+            /* mldsaOID holds the exact key OID sum (e.g. ML_DSA_65k),
+             * set when the key was decoded */
+            keyType = key->mldsaOID;
+            break;
+#endif
     }
     return keyType;
 }

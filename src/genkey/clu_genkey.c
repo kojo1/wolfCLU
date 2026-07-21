@@ -1384,8 +1384,9 @@ int wolfCLU_genKey_ML_DSA(WC_RNG* rng, char* fName, int directive, int fmt,
                 XMEMCPY(fOutNameBuf + fNameSz, fExtPriv, fExtSz);
                 WOLFCLU_LOG(WOLFCLU_L0, "Private key file = %s", fOutNameBuf);
 
-                /* Private key to der */
-                derBufSz = wc_MlDsaKey_PrivateKeyToDer(key,
+                /* KeyToDer includes the public key in the PKCS#8 output,
+                 * needed for cert generation (e.g. req -x509) */
+                derBufSz = wc_MlDsaKey_KeyToDer(key,
                                 derBuf, (word32)keySz);
                 if (derBufSz < 0) {
                     ret = derBufSz;

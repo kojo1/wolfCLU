@@ -123,7 +123,13 @@ int wolfCLU_CertSignFree(WOLFCLU_CERT_SIGN* csign)
         }
         wolfSSL_BIO_free(csign->randFile);
         wolfSSL_X509_free(csign->ca);
-        if (csign->keyType == RSAk || csign->keyType == ECDSAk) {
+        if (csign->keyType == RSAk || csign->keyType == ECDSAk
+#if defined(WOLFSSL_HAVE_MLDSA)
+                || csign->keyType == ML_DSA_44k
+                || csign->keyType == ML_DSA_65k
+                || csign->keyType == ML_DSA_87k
+#endif
+                ) {
             wolfSSL_EVP_PKEY_free(csign->caKey.pkey);
         }
         XFREE(csign, HEAP_HINT, DYNAMIC_TYPE_CERT);
@@ -201,6 +207,11 @@ void wolfCLU_CertSignSetCA(WOLFCLU_CERT_SIGN* csign, WOLFSSL_X509* ca,
             switch (keyType) {
                 case RSAk:
                 case ECDSAk:
+#if defined(WOLFSSL_HAVE_MLDSA)
+                case ML_DSA_44k:
+                case ML_DSA_65k:
+                case ML_DSA_87k:
+#endif
                     wolfSSL_EVP_PKEY_free(csign->caKey.pkey);
                     csign->caKey.pkey = (WOLFSSL_EVP_PKEY*)key;
                     break;
@@ -1382,7 +1393,13 @@ int wolfCLU_CertSign(WOLFCLU_CERT_SIGN* csign, WOLFSSL_X509* x509)
 
     /* sign the certificate */
     if (ret == WOLFCLU_SUCCESS &&
-            (csign->keyType == RSAk || csign->keyType == ECDSAk)) {
+            (csign->keyType == RSAk || csign->keyType == ECDSAk
+#if defined(WOLFSSL_HAVE_MLDSA)
+             || csign->keyType == ML_DSA_44k
+             || csign->keyType == ML_DSA_65k
+             || csign->keyType == ML_DSA_87k
+#endif
+            )) {
         if (wolfSSL_X509_check_private_key(csign->ca, csign->caKey.pkey) !=
                 WOLFSSL_SUCCESS) {
             wolfCLU_LogError("Private key does not match with CA");
